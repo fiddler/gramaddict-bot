@@ -615,11 +615,16 @@ class DeviceFacade:
             except uiautomator2.JSONRPCError as e:
                 raise DeviceFacade.JsonRpcError(e)
 
-        def get_bounds(self) -> dict:
+        def get_bounds(self):
             try:
                 return self.viewV2.info["bounds"]
-            except uiautomator2.JSONRPCError as e:
-                raise DeviceFacade.JsonRpcError(e)
+            except uiautomator2.exceptions.UiObjectNotFoundError as e:
+                # Add a small delay and retry once before raising the error
+                time.sleep(2)
+                try:
+                    return self.viewV2.info["bounds"]
+                except uiautomator2.exceptions.UiObjectNotFoundError:
+                    raise DeviceFacade.JsonRpcError(e)
 
         def get_height(self) -> int:
             bounds = self.get_bounds()

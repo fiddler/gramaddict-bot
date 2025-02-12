@@ -138,60 +138,84 @@ class TabBarView:
         logger.debug(f"Navigate to {tab_name}")
         button = None
         UniversalActions.close_keyboard(self.device)
-        if tab == TabBarTabs.HOME:
-            button = self.device.find(
-                classNameMatches=ClassName.BUTTON_OR_FRAME_LAYOUT_REGEX,
-                descriptionMatches=case_insensitive_re(TabBarText.HOME_CONTENT_DESC),
-            )
-
-        elif tab == TabBarTabs.SEARCH:
-            button = self.device.find(
-                classNameMatches=ClassName.BUTTON_OR_FRAME_LAYOUT_REGEX,
-                descriptionMatches=case_insensitive_re(TabBarText.SEARCH_CONTENT_DESC),
-            )
-
-            if not button.exists():
-                # Some accounts display the search btn only in Home -> action bar
-                logger.debug("Didn't find search in the tab bar...")
-                home_view = self.navigateToHome()
-                home_view.navigateToSearch()
-                return
-        elif tab == TabBarTabs.REELS:
-            button = self.device.find(
-                classNameMatches=ClassName.BUTTON_OR_FRAME_LAYOUT_REGEX,
-                descriptionMatches=case_insensitive_re(TabBarText.REELS_CONTENT_DESC),
-            )
-
-        elif tab == TabBarTabs.ORDERS:
-            button = self.device.find(
-                classNameMatches=ClassName.BUTTON_OR_FRAME_LAYOUT_REGEX,
-                descriptionMatches=case_insensitive_re(TabBarText.ORDERS_CONTENT_DESC),
-            )
-
-        elif tab == TabBarTabs.ACTIVITY:
-            button = self.device.find(
-                classNameMatches=ClassName.BUTTON_OR_FRAME_LAYOUT_REGEX,
-                descriptionMatches=case_insensitive_re(
-                    TabBarText.ACTIVITY_CONTENT_DESC
-                ),
-            )
-
-        elif tab == TabBarTabs.PROFILE:
-            button = self.device.find(
-                classNameMatches=ClassName.BUTTON_OR_FRAME_LAYOUT_REGEX,
-                descriptionMatches=case_insensitive_re(TabBarText.PROFILE_CONTENT_DESC),
-            )
-            if not button.exists():
-                button = self._get_new_profile_position()
-
-        if button is not None and button.exists(Timeout.MEDIUM):
-            # Two clicks to reset tab content
-            button.click(sleep=SleepTime.SHORT)
-            if tab is not TabBarTabs.PROFILE:
-                button.click(sleep=SleepTime.SHORT)
+        
+        if tab == TabBarTabs.PROFILE:
+            # Try multiple ways to find the profile button
+            try:
+                # Try finding by tab bar first
+                tab_bar = self._getTabBar()
+                if tab_bar and tab_bar.exists():
+                    button = tab_bar.child(index=-1)  # Profile is usually last tab
+                    
+                if not button or not button.exists():
+                    button = self.device.find(
+                        classNameMatches=ClassName.BUTTON_OR_FRAME_LAYOUT_REGEX,
+                        descriptionMatches=case_insensitive_re("Profile, Tab"),
+                    )
+                if not button or not button.exists():
+                    button = self.device.find(
+                        classNameMatches=ClassName.BUTTON_OR_FRAME_LAYOUT_REGEX,
+                        descriptionMatches=case_insensitive_re(TabBarText.PROFILE_CONTENT_DESC),
+                    )
+                if not button or not button.exists():
+                    button = self._get_new_profile_position()
+                
+                if button and button.exists(Timeout.MEDIUM):
+                    logger.debug("Found profile button, clicking...")
+                    button.click(sleep=SleepTime.SHORT)
+                    return
+                    
+            except Exception as e:
+                logger.debug(f"Exception while finding profile button: {str(e)}")
+                # Even if we got an exception, check if we made it to profile
+                profile_view = ProfileView(self.device)
+                if profile_view.getFollowingCount() is not None:
+                    logger.debug("Successfully reached profile despite exception")
+                    return
+                
+            logger.error("Could not find profile tab button")
             return
+            
+        else:
+            # Original code for other tabs
+            if tab == TabBarTabs.HOME:
+                button = self.device.find(
+                    classNameMatches=ClassName.BUTTON_OR_FRAME_LAYOUT_REGEX,
+                    descriptionMatches=case_insensitive_re(TabBarText.HOME_CONTENT_DESC),
+                )
+            elif tab == TabBarTabs.SEARCH:
+                button = self.device.find(
+                    classNameMatches=ClassName.BUTTON_OR_FRAME_LAYOUT_REGEX,
+                    descriptionMatches=case_insensitive_re(TabBarText.SEARCH_CONTENT_DESC),
+                )
+                if not button.exists():
+                    logger.debug("Didn't find search in the tab bar...")
+                    home_view = self.navigateToHome()
+                    home_view.navigateToSearch()
+                    return
+            elif tab == TabBarTabs.REELS:
+                button = self.device.find(
+                    classNameMatches=ClassName.BUTTON_OR_FRAME_LAYOUT_REGEX,
+                    descriptionMatches=case_insensitive_re(TabBarText.REELS_CONTENT_DESC),
+                )
+            elif tab == TabBarTabs.ORDERS:
+                button = self.device.find(
+                    classNameMatches=ClassName.BUTTON_OR_FRAME_LAYOUT_REGEX,
+                    descriptionMatches=case_insensitive_re(TabBarText.ORDERS_CONTENT_DESC),
+                )
+            elif tab == TabBarTabs.ACTIVITY:
+                button = self.device.find(
+                    classNameMatches=ClassName.BUTTON_OR_FRAME_LAYOUT_REGEX,
+                    descriptionMatches=case_insensitive_re(TabBarText.ACTIVITY_CONTENT_DESC),
+                )
 
-        logger.error(f"Didn't find tab {tab_name} in the tab bar...")
+            if button is not None and button.exists(Timeout.MEDIUM):
+                button.click(sleep=SleepTime.SHORT)
+                if tab is not TabBarTabs.PROFILE:
+                    button.click(sleep=SleepTime.SHORT)
+                return
+
+            logger.error(f"Didn't find tab {tab_name} in the tab bar...")
 
 
 class ActionBarView:
@@ -1086,10 +1110,27 @@ class AccountView:
 
     def navigate_to_main_account(self):
         logger.debug("Navigating to main account...")
-        profile_view = ProfileView(self.device)
+        
+        # First try using the tab bar to navigate to profile
+        tab_bar = TabBarView(self.device)
+        profile_view = tab_bar.navigateToProfile()
+        
+        # Check if we successfully navigated to profile
+        if profile_view.getFollowingCount() is not None:
+            logger.info("Successfully navigated to profile")
+            return
+            
+        # If tab bar navigation failed, try avatar method
+        logger.debug("Tab bar navigation failed, trying avatar method...")
         profile_view.click_on_avatar()
         if profile_view.getFollowingCount() is None:
             profile_view.click_on_avatar()
+            
+        # If still not on profile, something is wrong
+        if profile_view.getFollowingCount() is None:
+            logger.error("Failed to navigate to profile view")
+            return False
+        return True
 
     def changeToUsername(self, username: str):
         action_bar = ProfileView._getActionBarTitleBtn(self)
@@ -1535,11 +1576,24 @@ class ProfileView(ActionBarView):
 
     def _new_ui_profile_button(self) -> bool:
         found = False
+        # Try finding by description
         buttons = self.device.find(className=ResourceID.BUTTON)
         for button in buttons:
             if button.get_desc() == "Profile":
                 button.click()
                 found = True
+                break
+        
+        if not found:
+            # Try finding by tab button name text
+            profile_tab = self.device.find(
+                resourceIdMatches=case_insensitive_re(ResourceID.TAB_BUTTON_NAME_TEXT),
+                textMatches=case_insensitive_re("Profile")
+            )
+            if profile_tab.exists():
+                profile_tab.click()
+                found = True
+        
         return found
 
     def _old_ui_profile_button(self) -> bool:
