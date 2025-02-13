@@ -15,7 +15,11 @@ import uiautomator2
 from GramAddict.core.utils import random_sleep
 
 logger = logging.getLogger(__name__)
+configs = None
 
+def load_config(config):
+    global configs
+    configs = config
 
 def create_device(device_id, app_id):
     try:
@@ -249,13 +253,57 @@ class DeviceFacade:
                 attempts += 1
 
     def unlock(self):
+        """Unlock the device screen. If device-password is configured, it will attempt to use it."""
+        # First try simple swipe unlock
         self.swipe(Direction.UP, 0.8)
         sleep(2)
         logger.debug(f"Screen locked: {self.is_screen_locked()}")
+        
         if self.is_screen_locked():
+            # Try pattern unlock first
             self.swipe(Direction.RIGHT, 0.8)
             sleep(2)
-            logger.debug(f"Screen locked: {self.is_screen_locked()}")
+            logger.debug(f"Screen locked after pattern attempt: {self.is_screen_locked()}")
+            
+            # If still locked, check for password
+            if self.is_screen_locked():
+                if configs is None:
+                    logger.error("Device is locked but config is not loaded. Cannot attempt password unlock.")
+                    raise DeviceFacade.DeviceLockError("Device is locked and config is not loaded")
+                
+                if not hasattr(configs, 'args'):
+                    logger.error("Device is locked but config args are not available. Cannot attempt password unlock.")
+                    raise DeviceFacade.DeviceLockError("Device is locked and config args are not available")
+                
+                if not hasattr(configs.args, 'device_password') or not configs.args.device_password:
+                    logger.error("Device is locked with a password/PIN but no device-password is configured in config.yml")
+                    raise DeviceFacade.DeviceLockError("Device is locked but no password configured. Add device-password to your config.yml")
+                
+                try:
+                    # Wake up the device if needed
+                    if not self.get_info()['screenOn']:
+                        self.press_power()
+                        sleep(1)
+                    
+                    # Type the password/PIN
+                    logger.info("Attempting to unlock device with configured password...")
+                    cmd = f"adb{'' if self.device_id is None else f' -s {self.device_id}'} shell input text {configs.args.device_password}"
+                    run(cmd, shell=True, check=True)
+                    sleep(1)
+                    
+                    # Press enter to confirm
+                    cmd = f"adb{'' if self.device_id is None else f' -s {self.device_id}'} shell input keyevent 66"
+                    run(cmd, shell=True, check=True)
+                    sleep(2)
+                    
+                    if not self.is_screen_locked():
+                        logger.info("Successfully unlocked device with password.")
+                    else:
+                        logger.error("Failed to unlock device with configured password. Please check if the password is correct.")
+                        raise DeviceFacade.DeviceLockError("Failed to unlock with configured password")
+                except Exception as e:
+                    logger.error(f"Error while trying to unlock device with password: {str(e)}")
+                    raise DeviceFacade.DeviceLockError(f"Error unlocking device: {str(e)}")
 
     def screen_off(self):
         self.deviceV2.screen_off()
@@ -745,4 +793,7 @@ class DeviceFacade:
         pass
 
     class AppHasCrashed(Exception):
+        pass
+
+    class DeviceLockError(Exception):
         pass

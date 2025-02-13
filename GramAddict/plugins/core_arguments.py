@@ -18,6 +18,13 @@ class CoreArguments(Plugin):
                 "default": None,
             },
             {
+                "arg": "--device-password",
+                "nargs": None,
+                "help": "device unlock password/PIN if the device is locked with one",
+                "metavar": "1234",
+                "default": None,
+            },
+            {
                 "arg": "--username",
                 "nargs": None,
                 "help": "username of the instagram account being used",

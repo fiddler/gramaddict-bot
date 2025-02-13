@@ -90,6 +90,8 @@ def start_bot(**kwargs):
     load_interaction(configs)
     load_utils(configs)
     load_views(configs)
+    from GramAddict.core.device_facade import load_config as load_device
+    load_device(configs)
 
     if not configs.args or not check_adb_connection():
         return
