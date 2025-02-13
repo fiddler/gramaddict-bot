@@ -148,23 +148,38 @@ class TabBarView:
                     button = tab_bar.child(index=-1)  # Profile is usually last tab
                     
                 if not button or not button.exists():
+                    # Try finding by profile image
+                    button = self.device.find(
+                        className=ClassName.IMAGE_VIEW,
+                        descriptionMatches=case_insensitive_re("Profile picture|Profile Photo"),
+                    )
+                
+                if not button or not button.exists():
                     button = self.device.find(
                         classNameMatches=ClassName.BUTTON_OR_FRAME_LAYOUT_REGEX,
-                        descriptionMatches=case_insensitive_re("Profile, Tab"),
+                        descriptionMatches=case_insensitive_re("Profile, Tab|Profile"),
                     )
+                
                 if not button or not button.exists():
                     button = self.device.find(
                         classNameMatches=ClassName.BUTTON_OR_FRAME_LAYOUT_REGEX,
                         descriptionMatches=case_insensitive_re(TabBarText.PROFILE_CONTENT_DESC),
                     )
+                
                 if not button or not button.exists():
                     button = self._get_new_profile_position()
                 
                 if button and button.exists(Timeout.MEDIUM):
                     logger.debug("Found profile button, clicking...")
                     button.click(sleep=SleepTime.SHORT)
-                    return
-                    
+                    # Verify we made it to profile by checking for following count
+                    profile_view = ProfileView(self.device)
+                    if profile_view.getFollowingCount() is not None:
+                        logger.debug("Successfully reached profile")
+                        return
+                    else:
+                        logger.warning("Profile navigation may have failed - following count not found")
+                        
             except Exception as e:
                 logger.debug(f"Exception while finding profile button: {str(e)}")
                 # Even if we got an exception, check if we made it to profile
@@ -1592,6 +1607,26 @@ class ProfileView(ActionBarView):
             )
             if profile_tab.exists():
                 profile_tab.click()
+                found = True
+                
+        if not found:
+            # Last resort - try clicking bottom right corner where profile tab usually is
+            logger.debug("Trying blind click on bottom-right corner where profile tab usually is...")
+            display_width = self.device.get_info()["displayWidth"]
+            display_height = self.device.get_info()["displayHeight"]
+            
+            # Calculate position 25px from right and bottom edges
+            x = display_width - 25
+            y = display_height - 25
+            
+            # Use the UI automator click method
+            self.device.deviceV2.click(x, y)
+            
+            # Wait a moment and check if we made it to profile
+            from time import sleep
+            sleep(2)
+            if self.getFollowingCount() is not None:
+                logger.debug("Successfully reached profile via blind click!")
                 found = True
         
         return found
