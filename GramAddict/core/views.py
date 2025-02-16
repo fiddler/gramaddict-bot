@@ -1591,45 +1591,124 @@ class ProfileView(ActionBarView):
 
     def _new_ui_profile_button(self) -> bool:
         found = False
-        # Try finding by description
-        buttons = self.device.find(className=ResourceID.BUTTON)
-        for button in buttons:
-            if button.get_desc() == "Profile":
-                button.click()
-                found = True
-                break
-        
-        if not found:
-            # Try finding by tab button name text
-            profile_tab = self.device.find(
-                resourceIdMatches=case_insensitive_re(ResourceID.TAB_BUTTON_NAME_TEXT),
-                textMatches=case_insensitive_re("Profile")
-            )
-            if profile_tab.exists():
-                profile_tab.click()
-                found = True
+        max_retries = 3
+        retry_count = 0
+
+        while retry_count < max_retries:
+            try:
+                # Check UI Automator health
+                logger.debug("Checking UI Automator health...")
+                try:
+                    self.device.deviceV2.dump_hierarchy()
+                    logger.debug("UI Automator appears healthy")
+                except Exception as e:
+                    logger.warning(f"UI Automator health check failed: {str(e)}")
+                    logger.info("Attempting to restart UI Automator service...")
+                    
+                    # Stop existing service
+                    try:
+                        self.device.deviceV2.service.stop()
+                        sleep(2)
+                    except Exception:
+                        pass
+                        
+                    # Start new service
+                    try:
+                        self.device.deviceV2.service.start()
+                        sleep(3)
+                        # Verify service is responsive
+                        self.device.deviceV2.dump_hierarchy()
+                        logger.info("Successfully restarted UI Automator service")
+                    except Exception as e2:
+                        logger.error(f"Failed to restart UI Automator: {str(e2)}")
+                        retry_count += 1
+                        sleep(5)  # Wait before retry
+                        continue
+
+                # Try multiple methods to find and click profile button
+                methods = [
+                    # Method 1: Find by tab bar
+                    lambda: self.device.find(
+                        resourceIdMatches=case_insensitive_re(ResourceID.TAB_BAR),
+                        className=ClassName.LINEAR_LAYOUT
+                    ).child(index=-1),
+                    
+                    # Method 2: Find by profile image
+                    lambda: self.device.find(
+                        className=ClassName.IMAGE_VIEW,
+                        descriptionMatches=case_insensitive_re("Profile picture|Profile Photo")
+                    ),
+                    
+                    # Method 3: Find by button description
+                    lambda: self.device.find(
+                        classNameMatches=ClassName.BUTTON_OR_FRAME_LAYOUT_REGEX,
+                        descriptionMatches=case_insensitive_re("Profile, Tab|Profile")
+                    ),
+                    
+                    # Method 4: Find by content description
+                    lambda: self.device.find(
+                        classNameMatches=ClassName.BUTTON_OR_FRAME_LAYOUT_REGEX,
+                        descriptionMatches=case_insensitive_re(TabBarText.PROFILE_CONTENT_DESC)
+                    )
+                ]
+
+                for method in methods:
+                    try:
+                        button = method()
+                        if button.exists(Timeout.SHORT):
+                            logger.debug("Found profile button, attempting to click...")
+                            button.click(sleep=SleepTime.SHORT)
+                            
+                            # Verify navigation success
+                            sleep(2)  # Wait for navigation
+                            following_count = self.getFollowingCount()
+                            if following_count is not None:
+                                logger.debug("Successfully reached profile!")
+                                return True
+                    except Exception as e:
+                        logger.debug(f"Method failed: {str(e)}")
+                        continue
+
+                # If all methods fail, try blind clicks
+                logger.debug("Trying blind clicks as last resort...")
+                display_width = self.device.get_info()["displayWidth"]
+                display_height = self.device.get_info()["displayHeight"]
                 
-        if not found:
-            # Last resort - try clicking bottom right corner where profile tab usually is
-            logger.debug("Trying blind click on bottom-right corner where profile tab usually is...")
-            display_width = self.device.get_info()["displayWidth"]
-            display_height = self.device.get_info()["displayHeight"]
-            
-            # Calculate position 25px from right and bottom edges
-            x = display_width - 25
-            y = display_height - 25
-            
-            # Use the UI automator click method
-            self.device.deviceV2.click(x, y)
-            
-            # Wait a moment and check if we made it to profile
-            from time import sleep
-            sleep(2)
-            if self.getFollowingCount() is not None:
-                logger.debug("Successfully reached profile via blind click!")
-                found = True
-        
-        return found
+                click_positions = [
+                    (display_width - 25, display_height - 25),
+                    (display_width - 60, display_height - 40),
+                    (display_width - 100, display_height - 25)
+                ]
+                
+                for x, y in click_positions:
+                    try:
+                        logger.debug(f"Attempting blind click at ({x}, {y})")
+                        self.device.deviceV2.click(x, y)
+                        sleep(3)
+                        
+                        following_count = self.getFollowingCount()
+                        if following_count is not None:
+                            logger.debug("Successfully reached profile via blind click!")
+                            return True
+                    except Exception as e:
+                        logger.debug(f"Blind click failed: {str(e)}")
+                        continue
+
+                retry_count += 1
+                if retry_count < max_retries:
+                    logger.info(f"Profile navigation attempt {retry_count + 1}/{max_retries} failed, retrying...")
+                    sleep(5)  # Wait before retry
+                
+            except Exception as e:
+                logger.error(f"Unexpected error during profile navigation: {str(e)}")
+                retry_count += 1
+                if retry_count < max_retries:
+                    logger.info(f"Retrying after error ({retry_count}/{max_retries})...")
+                    sleep(5)
+                continue
+
+        logger.error("All attempts to navigate to profile failed")
+        return False
 
     def _old_ui_profile_button(self) -> bool:
         found = False
