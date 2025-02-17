@@ -430,18 +430,23 @@ class Filter:
             .split()
         )
 
-        if not cleaned_biography and (
+        # Only skip empty biographies if there are active biography-related filters
+        has_active_bio_filters = (
             len(field_mandatory_words) > 0
             or field_bio_language is not None
+            or field_bio_banned_language is not None
             or field_specific_alphabet is not None
-        ):
+        )
+
+        if not cleaned_biography and has_active_bio_filters:
             logger.info(
-                f"@{username} has an empty biography, that means there isn't any mandatory things that can be checked. Skip.",
+                f"@{username} has an empty biography and there are active biography filters that require content to check. Skip.",
                 extra={"color": f"{Fore.CYAN}"},
             )
             return profile_data, self.return_check_profile(
                 username, profile_data, SkipReason.BIOGRAPHY_IS_EMPTY
             )
+
         if (
             len(field_blacklist_words) > 0
             or len(field_mandatory_words) > 0
